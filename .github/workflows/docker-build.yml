@@ -29,6 +29,6 @@ jobs:
 
       - name: Build and push Docker image to ECR
         run: |
-          docker build -t your-repository-name:latest .
+          docker build -t resume:latest .
           docker tag resume:latest 320060061347.dkr.ecr.us-east-1.amazonaws.com/resume:latest
           docker push 320060061347.dkr.ecr.us-east-1.amazonaws.com/resume:latest
