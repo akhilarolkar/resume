@@ -4,4 +4,4 @@ from django.shortcuts import render
 from django.http import HttpResponse
 
 def index(request):
-    return HttpResponse("Hello, world! This is Akhil Arolkar.")
+    return render(request, 'myresume/index.html')
