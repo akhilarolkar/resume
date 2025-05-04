@@ -9,7 +9,7 @@ pipeline {
         AWS_REGION = 'eu-north-1'
         ECR_REPO = 'resume-docker'
         ECR_ACCOUNT = '320060061347'
-        IMAGE_TAG = 'latest'
+        IMAGE_TAG = sh(script: "date +%Y%m%d", returnStdout: true).trim() + "-${env.BUILD_NUMBER}"
         DOCKER_IMAGE = "${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
     }
 
