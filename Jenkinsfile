@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    triggers{
+        githubPush()
+    }
+
     environment {
         AWS_REGION = 'eu-north-1'
         ECR_REPO = 'resume-docker'
