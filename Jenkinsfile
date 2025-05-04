@@ -40,6 +40,8 @@ pipeline {
          stage('Push to ECR') {
              steps {
                  sh 'docker push $DOCKER_IMAGE'
+                 sh "echo \"${IMAGE_TAG}\" > image_tag.txt"
+                 archiveArtifacts artifacts: 'image_tag.txt'
              }
          }
     }
