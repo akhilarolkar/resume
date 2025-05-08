@@ -1,6 +1,7 @@
 pipeline {
     agent any
 
+    
     environment {
         AWS_REGION = 'eu-north-1'
         ECR_REPO = 'resume-docker'
