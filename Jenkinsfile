@@ -1,6 +1,11 @@
 pipeline {
     agent any
-    
+
+    parameters {
+        //choice(name: 'AWS_ENV', choices: ['prod', 'preprod'], description: 'Select AWS Environment')
+        string(name: 'BRANCH_NAME', choices: ['test', 'main'],defaultValue: 'test', description: 'Branch to build')
+    }
+
     environment {
         AWS_REGION = 'eu-north-1'
         ECR_REPO = 'resume-docker'
@@ -12,7 +17,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/akhilarolkar/resume.git'
+                git branch: '${params.BRANCH_NAME}', url: 'https://github.com/akhilarolkar/resume.git'
             }
         }
 
