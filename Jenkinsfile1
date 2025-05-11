@@ -1,0 +1,114 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'IMAGE_TAG', defaultValue: '', description: 'Enter ECR Image Tag (Leave empty to fetch latest)')
+    }
+
+    environment {
+        AWS_REGION = 'eu-north-1'
+        ECR_REPO = 'resume-docker'
+        ECR_ACCOUNT = '320060061347'
+        IMAGE_TAG = "${params.IMAGE_TAG ?: readFile('/var/jenkins_home/workspace/build-image/image_tag.txt').trim()}"
+        DOCKER_IMAGE = "${ECR_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+        ECS_CLUSTER = 'resume-cluster'
+        ECS_SERVICE = 'resume-service'
+        TASK_FAMILY = 'resume-td'
+    }
+
+    stages {
+        stage('Set Image Tag'){
+            steps{
+                script{
+                    if (!params.IMAGE_TAG?.trim()) {
+                        IMAGE_TAG = readFile('/var/jenkins_home/workspace/build-image/image_tag.txt').trim()
+                        echo "No image tag provided, using default from file: ${IMAGE_TAG}"
+                    } else {
+                        IMAGE_TAG = params.IMAGE_TAG
+                        echo "Using provided image tag: ${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+        stage('Check if image exists') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-ecr-creds']]){
+                    script {
+                        def imageExists = sh(script: "aws ecr describe-images --repository-name $ECR_REPO --image-ids imageTag=$IMAGE_TAG --query 'imageDetails[0].imageTags' --output text", returnStdout: true).trim()
+                        if (imageExists) {
+                            echo "Image $ECR_REPO:$IMAGE_TAG exists. Proceeding with deployment..."
+                        } else {
+                            error "Image $ECR_REPO:$IMAGE_TAG does not exist. Aborting deployment."
+                        }
+                    }
+                }
+            }
+        }
+        stage('Update ECS Task Definition') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-ecr-creds']]){
+                    sh '''
+                        aws ecs describe-task-definition --task-definition $TASK_FAMILY --region $AWS_REGION > task-def.json
+                    '''
+                    sh '''
+                        jq '.taskDefinition | {family, executionRoleArn, networkMode, containerDefinitions, requiresCompatibilities, cpu, memory}' task-def.json > temp-task-def.json
+                    '''
+                    sh '''
+                        jq '.containerDefinitions[0].image = "'$ECR_ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG'"' temp-task-def.json > new-task-def.json
+                    '''
+                    sh '''
+                        aws ecs register-task-definition --cli-input-json file://new-task-def.json --region $AWS_REGION
+                    '''
+                }
+            }
+        }
+        stage('Deploy to ECS') {
+            steps {
+                echo "Deploying"
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-ecr-creds']]){
+                    script {
+                     // Fetch the latest revision dynamically
+                        def latestRevision = sh(
+                            script: "aws ecs describe-task-definition --task-definition $TASK_FAMILY --region $AWS_REGION | jq -r '.taskDefinition.revision'",
+                            returnStdout: true
+                        ).trim()
+                    // Run ECS service update with latest revision
+                        sh """
+                            aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$latestRevision --force-new-deployment --region $AWS_REGION
+                        """
+                    }
+                }
+            }
+        }
+        stage('Wait Before Fetching IP') {
+            steps {
+                echo "Waiting for 60 seconds before fetching the ECS task IP..."
+                sleep(time: 60, unit: 'SECONDS')
+            }
+        }
+        stage('Fetch ECS Task Public IP') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-ecr-creds']]){
+                    script {
+                        // Get the task ARN
+                        def taskArn = sh(script: "aws ecs list-tasks --cluster $ECS_CLUSTER --service-name $ECS_SERVICE --query 'taskArns[0]' --output text", returnStdout: true).trim()
+                        // Get the ENI (Elastic Network Interface) attached to the task
+                        def eniId = sh(script: "aws ecs describe-tasks --cluster $ECS_CLUSTER --tasks ${taskArn} --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text", returnStdout: true).trim()
+                        // Get the public IP from the ENI
+                        def publicIp = sh(script: "aws ec2 describe-network-interfaces --network-interface-ids ${eniId} --query 'NetworkInterfaces[0].Association.PublicIp' --output text", returnStdout: true).trim()
+                        // Print the IP
+                        echo "ECS Task Public IP: ${publicIp}"
+                    }
+                }
+            }
+        }
+        stage('Cleanup') {
+            steps {
+                echo "Cleaning up"
+                sh '''
+                    rm -f task-def.json temp-task-def.json new-task-def.json
+                '''
+            }
+        }
+    }
+}
