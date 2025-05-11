@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    
+
     parameters {
         //choice(name: 'AWS_ENV', choices: ['prod', 'preprod'], description: 'Select AWS Environment')
         string(name: 'BRANCH_NAME', choices: ['test', 'main'],defaultValue: 'test', description: 'Branch to build')
